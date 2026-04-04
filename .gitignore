@@ -30,5 +30,8 @@ Thumbs.db
 # Environment
 .env
 
+# MediaPipe model files (large binaries)
+*.task
+
 # Jupyter
 .ipynb_checkpoints/

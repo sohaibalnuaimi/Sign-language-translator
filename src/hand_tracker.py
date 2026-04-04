@@ -9,75 +9,103 @@ Controls:
     p  — print landmarks for the current frame to the console
 """
 
+import os
 import cv2
-import mediapipe as mp
 import numpy as np
+from mediapipe.tasks.python import BaseOptions
+from mediapipe.tasks.python.vision import (
+    HandLandmarker,
+    HandLandmarkerOptions,
+    RunningMode,
+)
+import mediapipe as mp
+
 from utils import LANDMARK_NAMES, COLORS
 
-# ── MediaPipe setup ──────────────────────────────────────────────────
-mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
-mp_drawing_styles = mp.solutions.drawing_styles
+# ── Path to the hand landmarker model ────────────────────────────────
+MODEL_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "assets", "hand_landmarker.task"
+)
+
+# ── Hand connections for drawing (21 landmarks) ──────────────────────
+HAND_CONNECTIONS = [
+    (0, 1), (1, 2), (2, 3), (3, 4),        # thumb
+    (0, 5), (5, 6), (6, 7), (7, 8),        # index
+    (0, 9), (9, 10), (10, 11), (11, 12),   # middle  (fix: wrist to middle MCP)
+    (0, 13), (13, 14), (14, 15), (15, 16), # ring    (fix: wrist to ring MCP)
+    (0, 17), (17, 18), (18, 19), (19, 20), # pinky   (fix: wrist to pinky MCP)
+    (5, 9), (9, 13), (13, 17),             # palm cross-connections
+]
 
 
 class HandTracker:
-    """Wraps MediaPipe Hands for easy landmark extraction."""
+    """Wraps MediaPipe HandLandmarker (tasks API) for landmark extraction."""
 
-    def __init__(self, max_hands=1, model_complexity=1, min_detection_conf=0.7, min_tracking_conf=0.5):
-        self.hands = mp_hands.Hands(
-            static_image_mode=False,
-            max_num_hands=max_hands,
-            model_complexity=model_complexity,
-            min_detection_confidence=min_detection_conf,
+    def __init__(self, max_hands=1, min_detection_conf=0.7, min_tracking_conf=0.5):
+        options = HandLandmarkerOptions(
+            base_options=BaseOptions(model_asset_path=MODEL_PATH),
+            running_mode=RunningMode.VIDEO,
+            num_hands=max_hands,
+            min_hand_detection_confidence=min_detection_conf,
+            min_hand_presence_confidence=min_detection_conf,
             min_tracking_confidence=min_tracking_conf,
         )
+        self.landmarker = HandLandmarker.create_from_options(options)
+        self._frame_timestamp = 0
 
     def process(self, frame):
         """Run hand detection on a BGR frame.
 
         Returns:
-            results — MediaPipe results object (or None if no hands found).
-            The caller can access results.multi_hand_landmarks for drawing.
+            result — HandLandmarkerResult with .hand_landmarks list.
         """
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        rgb.flags.writeable = False          # small perf boost
-        results = self.hands.process(rgb)
-        rgb.flags.writeable = True
-        return results
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        self._frame_timestamp += 33  # ~30fps in milliseconds
+        result = self.landmarker.detect_for_video(mp_image, self._frame_timestamp)
+        return result
 
-    def get_landmarks_array(self, results, hand_index=0):
-        """Extract a flat numpy array of shape (63,) from detection results.
+    def get_landmarks_array(self, result, hand_index=0):
+        """Extract a flat numpy array of shape (63,) from detection result.
 
         Returns:
-            np.ndarray of 63 values (21 landmarks × 3 coords) or None.
+            np.ndarray of 63 values (21 landmarks x 3 coords) or None.
         """
-        if not results.multi_hand_landmarks:
+        if not result.hand_landmarks:
             return None
-        if hand_index >= len(results.multi_hand_landmarks):
+        if hand_index >= len(result.hand_landmarks):
             return None
 
-        hand = results.multi_hand_landmarks[hand_index]
+        hand = result.hand_landmarks[hand_index]
         landmarks = []
-        for lm in hand.landmark:
+        for lm in hand:
             landmarks.extend([lm.x, lm.y, lm.z])
         return np.array(landmarks, dtype=np.float32)
 
-    def draw_landmarks(self, frame, results):
+    def draw_landmarks(self, frame, result):
         """Draw all detected hands' landmarks and connections on the frame."""
-        if results.multi_hand_landmarks:
-            for hand_landmarks in results.multi_hand_landmarks:
-                mp_drawing.draw_landmarks(
-                    frame,
-                    hand_landmarks,
-                    mp_hands.HAND_CONNECTIONS,
-                    mp_drawing_styles.get_default_hand_landmarks_style(),
-                    mp_drawing_styles.get_default_hand_connections_style(),
-                )
+        if not result.hand_landmarks:
+            return frame
+
+        h, w, _ = frame.shape
+        for hand in result.hand_landmarks:
+            # Draw connections
+            for start_idx, end_idx in HAND_CONNECTIONS:
+                x1, y1 = int(hand[start_idx].x * w), int(hand[start_idx].y * h)
+                x2, y2 = int(hand[end_idx].x * w), int(hand[end_idx].y * h)
+                cv2.line(frame, (x1, y1), (x2, y2), COLORS["cyan"], 2)
+
+            # Draw landmark dots
+            for lm in hand:
+                cx, cy = int(lm.x * w), int(lm.y * h)
+                cv2.circle(frame, (cx, cy), 5, COLORS["magenta"], -1)
+                cv2.circle(frame, (cx, cy), 5, COLORS["white"], 1)
+
         return frame
 
     def release(self):
         """Clean up MediaPipe resources."""
-        self.hands.close()
+        self.landmarker.close()
 
 
 def print_landmarks(landmarks_array):
@@ -95,7 +123,7 @@ def print_landmarks(landmarks_array):
 
 # ── Main: run standalone to test ─────────────────────────────────────
 def main():
-    tracker = HandTracker(max_hands=1, model_complexity=1)
+    tracker = HandTracker(max_hands=1)
     cap = cv2.VideoCapture(0)
 
     if not cap.isOpened():
@@ -114,13 +142,13 @@ def main():
         frame = cv2.flip(frame, 1)
 
         # Detect hands
-        results = tracker.process(frame)
+        result = tracker.process(frame)
 
         # Draw landmarks on frame
-        frame = tracker.draw_landmarks(frame, results)
+        frame = tracker.draw_landmarks(frame, result)
 
-        # Show FPS-style info
-        landmarks = tracker.get_landmarks_array(results)
+        # Show status
+        landmarks = tracker.get_landmarks_array(result)
         status = "Hand detected" if landmarks is not None else "No hand"
         cv2.putText(frame, status, (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, COLORS["green"], 2)

@@ -32,8 +32,10 @@ import mediapipe as mp
 PROJECT_ROOT = os.path.join(os.path.dirname(__file__), "..")
 MODEL_PATH = os.path.join(PROJECT_ROOT, "assets", "hand_landmarker.task")
 
-# Try both common extraction structures
+# Try common extraction structures (Kaggle zips vary in nesting)
 KAGGLE_DIR_OPTIONS = [
+    os.path.join(PROJECT_ROOT, "data", "kaggle", "archive", "asl_alphabet_train", "asl_alphabet_train"),
+    os.path.join(PROJECT_ROOT, "data", "kaggle", "archive", "asl_alphabet_train"),
     os.path.join(PROJECT_ROOT, "data", "kaggle", "asl_alphabet_train", "asl_alphabet_train"),
     os.path.join(PROJECT_ROOT, "data", "kaggle", "asl_alphabet_train"),
     os.path.join(PROJECT_ROOT, "data", "kaggle"),

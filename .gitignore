@@ -14,8 +14,10 @@ env/
 
 # Data (too large for git)
 data/raw/
+data/processed/
 data/models/
 data/session_logs/
+data/kaggle/
 
 # IDE
 .vscode/

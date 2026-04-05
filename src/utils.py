@@ -11,6 +11,10 @@ FEATURE_COUNT = LANDMARK_COUNT * COORDS_PER_LANDMARK  # 63 features
 LETTERS = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 NUM_CLASSES = len(LETTERS)    # 26
 
+# Extended classes (Kaggle ASL Alphabet dataset includes these extras)
+EXTENDED_CLASSES = LETTERS + ["del", "nothing", "space"]
+NUM_EXTENDED_CLASSES = len(EXTENDED_CLASSES)  # 29
+
 # ── Color Palette (BGR for OpenCV) ───────────────────────────────────
 COLORS = {
     "green":   (0, 255, 0),
